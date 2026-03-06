@@ -1609,10 +1609,8 @@ function initCamControls(){
 function updateCamera(dt){
   if(!rd) return;
   const p=rd.player;
-  const absSpd=Math.abs(p.speed);
-  const spdRatio=Math.min(1, absSpd/p.maxSpd);
 
-  // Camera shake
+  // Camera shake only
   const shk = rd.shake>0 ? (Math.random()-.5)*rd.shake*0.25 : 0;
 
   // Compute camera position using orbit/tilt/zoom offsets
@@ -1643,8 +1641,8 @@ function updateCamera(dt){
 
   camera.position.copy(cam.pos);
 
-  // LookAt: car center + small ahead offset
-  const lookAhead = 3 + spdRatio*1;
+  // LookAt: car center + small fixed ahead offset (no speed-based change)
+  const lookAhead = 3;
   const targetLook = new THREE.Vector3(
     p.x + Math.sin(p.angle)*lookAhead,
     1.0,
@@ -1660,10 +1658,8 @@ function updateCamera(dt){
 
   camera.lookAt(cam.lookAt);
 
-  // Dynamic FOV
-  const targetFov = cam.fovBase + spdRatio*12 + (keys.nitro && p.nitro>0 ? 6 : 0);
-  cam.fovCurrent += (targetFov - cam.fovCurrent) * Math.min(1, 4*dt);
-  camera.fov = cam.fovCurrent;
+  // Fixed FOV — no zoom-out on acceleration, user controls zoom via zoomDist only
+  camera.fov = cam.fovBase;
   camera.updateProjectionMatrix();
 }
 
@@ -1753,13 +1749,7 @@ function renderScene(ts, dt){
   if(!rd) return;
   updateCamera(dt);
   renderer.render(scene, camera);
-
-  // Speed-rush screen effect (CSS overlay on canvas)
-  const spdRatio=Math.min(1, Math.abs(rd.player.speed)/rd.player.maxSpd);
-  const isNitro=keys.nitro && rd.player.nitro>0;
-
-  // Vignette / speed lines via 2D overlay canvas
-  drawScreenFX(spdRatio, isNitro, dt);
+  drawScreenFX(dt);
   drawMinimap();
 }
 
@@ -1774,43 +1764,24 @@ function ensureFXCanvas(){
 }
 
 let _fxAlpha=0;
-function drawScreenFX(spdRatio, isNitro, dt){
+function drawScreenFX(dt){
   ensureFXCanvas();
   fxCvs.width=window.innerWidth; fxCvs.height=window.innerHeight;
   const W=fxCvs.width, H=fxCvs.height;
   fxCtx.clearRect(0,0,W,H);
 
-  // Vignette — always present, stronger at speed
-  const vigStrength=0.35+spdRatio*.35;
-  const vig=fxCtx.createRadialGradient(W/2,H/2,H*.18,W/2,H/2,H*.75);
+  // Static vignette — fixed strength, no speed change
+  const vig=fxCtx.createRadialGradient(W/2,H/2,H*.25,W/2,H/2,H*.75);
   vig.addColorStop(0,'transparent');
-  vig.addColorStop(1,`rgba(0,0,0,${vigStrength})`);
+  vig.addColorStop(1,'rgba(0,0,0,0.32)');
   fxCtx.fillStyle=vig;
   fxCtx.fillRect(0,0,W,H);
 
-  // Speed lines at high speed
-  if(spdRatio>.55){
-    const lineAlpha=(spdRatio-.55)/.45 * .18;
-    fxCtx.globalAlpha=lineAlpha;
-    fxCtx.strokeStyle='#ffffff';
-    fxCtx.lineWidth=1;
-    const p=rd.player;
-    const ang=Math.atan2(p.vx||0, p.vz||0);
-    for(let i=0;i<30;i++){
-      const px=Math.random()*W, py=Math.random()*H;
-      const len=(25+Math.random()*55)*spdRatio;
-      fxCtx.beginPath();
-      fxCtx.moveTo(px,py);
-      fxCtx.lineTo(px-Math.sin(ang+Math.PI)*len, py-Math.cos(ang+Math.PI)*len);
-      fxCtx.stroke();
-    }
-    fxCtx.globalAlpha=1;
-  }
-
-  // Nitro orange glow pulse
+  // Nitro orange glow pulse only (no speed lines, no zoom)
+  const isNitro=rd && keys.nitro && rd.player.nitro>0;
   if(isNitro){
     _fxAlpha=Math.min(1, _fxAlpha+dt*6);
-    const pulse=.12+Math.sin(Date.now()*.015)*.05;
+    const pulse=.10+Math.sin(Date.now()*.015)*.04;
     const ng=fxCtx.createRadialGradient(W/2,H/2,0,W/2,H/2,H*.6);
     ng.addColorStop(0,'transparent');
     ng.addColorStop(.7,'transparent');
